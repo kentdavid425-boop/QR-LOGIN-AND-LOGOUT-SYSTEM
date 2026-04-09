@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (UID from Auth)
+    // Fields:
+    //   - uid: string (required)
+    //   - name: string (required, 2-100 chars)
+    //   - email: string (required, email format)
+    //   - role: string (required, 'student' | 'admin')
+    //   - qrCodeUuid: string (required, UUID format)
+    //   - batchNumber: string (optional)
+    //   - createdAt: string (required, ISO8601)
+    //
+    // Collection: logs
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required)
+    //   - userName: string (required)
+    //   - timestamp: timestamp (required)
+    //   - type: string (required, 'IN' | 'OUT')
+    //   - purpose: string (optional, 'Study Purposes' | 'Fluid Simulator' | 'Batch Meeting')
+    //   - dateStr: string (required, YYYY-MM-DD)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && (
+        getUserData().role == 'admin' || 
+        (request.auth.token.email == "kentdavid425@gmail.com" && request.auth.token.email_verified == true)
+      );
+    }
+    
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'role', 'qrCodeUuid', 'createdAt']) &&
+             data.uid is string &&
+             data.name is string && data.name.size() >= 2 && data.name.size() <= 100 &&
+             data.email is string && data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") &&
+             data.role in ['student', 'admin'] &&
+             data.qrCodeUuid is string && data.qrCodeUuid.size() >= 32 &&
+             (!('batchNumber' in data) || data.batchNumber is string) &&
+             data.createdAt is string;
+    }
+    
+    function isValidLog(data) {
+      return data.keys().hasAll(['userId', 'userName', 'timestamp', 'type', 'dateStr']) &&
+             data.userId is string &&
+             data.userName is string && data.userName.size() >= 2 &&
+             data.timestamp is timestamp &&
+             data.type in ['IN', 'OUT'] &&
+             (!('purpose' in data) || data.purpose in ['Study Purposes', 'Fluid Simulator', 'Batch Meeting']) &&
+             data.dateStr is string && data.dateStr.matches("^\\d{4}-\\d{2}-\\d{2}$");
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if (isOwner(userId) || isAdmin()) && isValidUser(request.resource.data) && 
+                      (request.resource.data.role == 'student' || isAdmin());
+      allow update: if (isOwner(userId) || isAdmin()) && isValidUser(request.resource.data);
+    }
+    
+    match /logs/{logId} {
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if isAdmin() && isValidLog(request.resource.data);
+      allow update, delete: if false; // Logs are immutable
+    }
+  }
+}

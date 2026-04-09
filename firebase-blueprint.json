@@ -1,0 +1,43 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores user information and roles.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["student", "admin"] },
+        "qrCodeUuid": { "type": "string" },
+        "batchNumber": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "email", "role", "qrCodeUuid"]
+    },
+    "AttendanceLog": {
+      "title": "Attendance Log",
+      "description": "Records of entry and exit events.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "timestamp": { "type": "object", "description": "Firestore Timestamp" },
+        "type": { "type": "string", "enum": ["IN", "OUT"] },
+        "purpose": { "type": "string", "enum": ["Study Purposes", "Fluid Simulator", "Batch Meeting"] },
+        "dateStr": { "type": "string", "description": "YYYY-MM-DD" }
+      },
+      "required": ["userId", "userName", "timestamp", "type", "dateStr"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents."
+    },
+    "/logs/{logId}": {
+      "schema": "AttendanceLog",
+      "description": "Attendance log entries."
+    }
+  }
+}
