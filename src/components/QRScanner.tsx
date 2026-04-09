@@ -12,6 +12,8 @@ export const QRScanner: React.FC = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [availableCameras, setAvailableCameras] = useState<any[]>([]);
+  const [currentCameraIndex, setCurrentCameraIndex] = useState(0);
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
 
   const purposes: { id: LogPurpose; icon: any; color: string }[] = [
@@ -20,30 +22,79 @@ export const QRScanner: React.FC = () => {
     { id: 'Batch Meeting', icon: Users, color: 'bg-purple-500' },
   ];
 
-  const startScanner = async () => {
+  const startScanner = async (cameraIndex?: number) => {
     try {
       setCameraError(null);
-      const html5QrCode = new Html5Qrcode("reader");
+      setIsScanning(true);
+      
+      await new Promise(resolve => setTimeout(resolve, 150));
+
+      if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
+        await html5QrCodeRef.current.stop();
+      }
+
+      const html5QrCode = html5QrCodeRef.current || new Html5Qrcode("reader");
       html5QrCodeRef.current = html5QrCode;
 
       const config = { 
-        fps: 10, 
+        fps: 15, 
         qrbox: { width: 250, height: 250 },
         aspectRatio: 1.0
       };
 
-      await html5QrCode.start(
-        { facingMode: "environment" }, 
-        config, 
-        onScanSuccess,
-        onScanFailure
-      );
-      setIsScanning(true);
+      const cameras = await Html5Qrcode.getCameras();
+      if (!cameras || cameras.length === 0) {
+        setAvailableCameras([]);
+        throw new Error("No cameras found. Please ensure camera permissions are granted.");
+      }
+      
+      setAvailableCameras(cameras);
+
+      // Determine which camera to use
+      let cameraId: string | null = null;
+      let selectedIndex = 0;
+
+      if (cameraIndex !== undefined && cameras[cameraIndex]) {
+        cameraId = cameras[cameraIndex].id;
+        selectedIndex = cameraIndex;
+      } else {
+        // Default logic: try to find back camera
+        const backCamera = cameras.find(c => 
+          c.label.toLowerCase().includes('back') || 
+          c.label.toLowerCase().includes('rear') ||
+          c.label.toLowerCase().includes('environment')
+        );
+        
+        if (backCamera) {
+          cameraId = backCamera.id;
+          selectedIndex = cameras.indexOf(backCamera);
+        } else if (cameras.length > 0) {
+          // Fallback to the last camera (often the back one on mobile)
+          const lastIndex = cameras.length - 1;
+          if (cameras[lastIndex]) {
+            cameraId = cameras[lastIndex].id;
+            selectedIndex = lastIndex;
+          }
+        }
+      }
+
+      if (!cameraId) {
+        throw new Error("Could not identify a valid camera device.");
+      }
+
+      setCurrentCameraIndex(selectedIndex);
+      await html5QrCode.start(cameraId, config, onScanSuccess, onScanFailure);
     } catch (err: any) {
       console.error("Failed to start scanner", err);
-      setCameraError(err.message || "Could not access camera. Please ensure you have granted permissions.");
+      setCameraError(err.message || "Camera access failed.");
       setIsScanning(false);
     }
+  };
+
+  const switchCamera = () => {
+    if (availableCameras.length < 2) return;
+    const nextIndex = (currentCameraIndex + 1) % availableCameras.length;
+    startScanner(nextIndex);
   };
 
   const stopScanner = async () => {
@@ -74,19 +125,7 @@ export const QRScanner: React.FC = () => {
       await stopScanner(); // Stop scanning while processing
       
       const result = await getUserByQR(decodedText);
-      
-      if (result.nextType === 'IN') {
-        setPendingScan({ user: result.user, type: 'IN' });
-      } else {
-        // Auto-log OUT
-        await createAttendanceLog(result.user, 'OUT');
-        setScanResult({ user: result.user, type: 'OUT' });
-        
-        setTimeout(() => {
-          setScanResult(null);
-          startScanner();
-        }, 3000);
-      }
+      setPendingScan({ user: result.user, type: result.nextType });
     } catch (err: any) {
       setError(err.message || "Scan failed");
       setTimeout(() => {
@@ -97,6 +136,31 @@ export const QRScanner: React.FC = () => {
       setIsProcessing(false);
     }
   }
+
+  const handleLogOut = async () => {
+    if (!pendingScan || pendingScan.type !== 'OUT' || isProcessing) return;
+    
+    try {
+      setIsProcessing(true);
+      await createAttendanceLog(pendingScan.user, 'OUT');
+      setScanResult({ user: pendingScan.user, type: 'OUT' });
+      setPendingScan(null);
+      
+      setTimeout(() => {
+        setScanResult(null);
+        startScanner();
+      }, 3000);
+    } catch (err: any) {
+      setError(err.message || "Failed to log out");
+      setPendingScan(null);
+      setTimeout(() => {
+        setError(null);
+        startScanner();
+      }, 3000);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const handleSelectPurpose = async (purpose: LogPurpose) => {
     if (!pendingScan || isProcessing) return;
@@ -135,6 +199,15 @@ export const QRScanner: React.FC = () => {
       </div>
 
       <div className="relative w-full aspect-square bg-black rounded-2xl overflow-hidden border-4 border-gray-100 shadow-xl">
+        <style>
+          {`
+            #reader video {
+              object-fit: cover !important;
+              width: 100% !important;
+              height: 100% !important;
+            }
+          `}
+        </style>
         {!isScanning && !scanResult && !pendingScan && !error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 text-white p-6 text-center">
             {cameraError ? (
@@ -142,7 +215,7 @@ export const QRScanner: React.FC = () => {
                 <XCircle className="w-16 h-16 mb-4 text-red-500 mx-auto" />
                 <p className="text-sm text-red-200">{cameraError}</p>
                 <button 
-                  onClick={startScanner}
+                  onClick={() => startScanner()}
                   className="bg-white text-gray-900 px-8 py-3 rounded-full font-semibold transition-all flex items-center justify-center mx-auto space-x-2"
                 >
                   <RefreshCw className="w-4 h-4" />
@@ -153,7 +226,7 @@ export const QRScanner: React.FC = () => {
               <>
                 <Camera className="w-16 h-16 mb-4 opacity-50" />
                 <button 
-                  onClick={startScanner}
+                  onClick={() => startScanner()}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-full font-semibold transition-all transform hover:scale-105"
                 >
                   Start Camera
@@ -163,7 +236,7 @@ export const QRScanner: React.FC = () => {
           </div>
         )}
 
-        <div id="reader" className={`w-full h-full ${isScanning ? "block" : "hidden"}`}></div>
+      <div id="reader" className={`w-full h-full min-h-[300px] ${isScanning ? "block" : "hidden"}`}></div>
 
         <AnimatePresence>
           {isScanning && !scanResult && !pendingScan && !error && (
@@ -208,23 +281,36 @@ export const QRScanner: React.FC = () => {
             >
               <div className="mb-6 text-center">
                 <h3 className="text-xl font-bold mb-1">{pendingScan.user.name}</h3>
-                <p className="text-sm text-gray-400 uppercase tracking-widest font-bold">Select Purpose</p>
+                <p className="text-sm text-gray-400 uppercase tracking-widest font-bold">
+                  {pendingScan.type === 'IN' ? 'Select Purpose' : 'Already Logged In'}
+                </p>
               </div>
               
               <div className="grid grid-cols-1 gap-3 w-full">
-                {purposes.map((p) => (
+                {pendingScan.type === 'IN' ? (
+                  purposes.map((p) => (
+                    <button
+                      key={p.id}
+                      disabled={isProcessing}
+                      onClick={() => handleSelectPurpose(p.id)}
+                      className="flex items-center space-x-4 p-4 bg-white/10 hover:bg-white/20 rounded-2xl transition-all text-left group"
+                    >
+                      <div className={`w-12 h-12 ${p.color} rounded-xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform`}>
+                        <p.icon className="w-6 h-6 text-white" />
+                      </div>
+                      <span className="font-bold text-lg">{p.id}</span>
+                    </button>
+                  ))
+                ) : (
                   <button
-                    key={p.id}
                     disabled={isProcessing}
-                    onClick={() => handleSelectPurpose(p.id)}
-                    className="flex items-center space-x-4 p-4 bg-white/10 hover:bg-white/20 rounded-2xl transition-all text-left group"
+                    onClick={handleLogOut}
+                    className="flex items-center space-x-4 p-6 bg-red-500 hover:bg-red-600 rounded-2xl transition-all text-left group justify-center"
                   >
-                    <div className={`w-12 h-12 ${p.color} rounded-xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform`}>
-                      <p.icon className="w-6 h-6 text-white" />
-                    </div>
-                    <span className="font-bold text-lg">{p.id}</span>
+                    <XCircle className="w-8 h-8 text-white group-hover:scale-110 transition-transform" />
+                    <span className="font-bold text-2xl">Log Out</span>
                   </button>
-                ))}
+                )}
               </div>
               
               <button 
@@ -271,12 +357,23 @@ export const QRScanner: React.FC = () => {
       </div>
 
       {isScanning && (
-        <button 
-          onClick={stopScanner}
-          className="text-gray-500 hover:text-red-600 font-medium transition-colors"
-        >
-          Stop Scanner
-        </button>
+        <div className="flex space-x-4">
+          {availableCameras.length > 1 && (
+            <button 
+              onClick={switchCamera}
+              className="flex items-center space-x-2 text-blue-600 hover:text-blue-700 font-medium transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>Switch Camera</span>
+            </button>
+          )}
+          <button 
+            onClick={stopScanner}
+            className="text-gray-500 hover:text-red-600 font-medium transition-colors"
+          >
+            Stop Scanner
+          </button>
+        </div>
       )}
     </div>
   );

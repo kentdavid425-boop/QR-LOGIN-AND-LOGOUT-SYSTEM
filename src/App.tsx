@@ -7,10 +7,12 @@ import { StudentDashboard } from './components/StudentDashboard.tsx';
 import { AdminDashboard } from './components/AdminDashboard.tsx';
 import { QRScanner } from './components/QRScanner.tsx';
 import { StudentManagement } from './components/StudentManagement.tsx';
-import { LogOut, QrCode, ClipboardList, LayoutDashboard, LogIn, Loader2, Users } from 'lucide-react';
+import { LogOut, QrCode, ClipboardList, LayoutDashboard, LogIn, Loader2, Users, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useOnlineStatus } from './hooks/useOnlineStatus.ts';
 
 export default function App() {
+  const isOnline = useOnlineStatus();
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -90,6 +92,13 @@ export default function App() {
           </div>
 
           <div className="flex items-center space-x-4">
+            {!isOnline && (
+              <div className="flex items-center space-x-1 bg-amber-50 text-amber-600 px-3 py-1 rounded-full border border-amber-100 animate-pulse">
+                <WifiOff className="w-4 h-4" />
+                <span className="text-xs font-bold uppercase tracking-wider">Offline Mode</span>
+              </div>
+            )}
+            
             <div className="hidden md:flex items-center space-x-1 bg-gray-100 p-1 rounded-xl">
               <button 
                 onClick={() => setActiveTab('dashboard')}

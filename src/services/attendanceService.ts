@@ -165,8 +165,8 @@ export const createAttendanceLog = async (user: UserProfile, type: LogType, purp
       userName: user.name,
       timestamp: Timestamp.now(),
       type,
-      purpose: purpose as any,
-      dateStr: format(new Date(), 'yyyy-MM-dd')
+      dateStr: format(new Date(), 'yyyy-MM-dd'),
+      ...(purpose ? { purpose: purpose as any } : {})
     };
     
     await addDoc(collection(db, 'logs'), newLog);
@@ -204,10 +204,10 @@ export const createUser = async (userData: { name: string, email: string, batchN
       uid: tempId,
       name: userData.name,
       email: userData.email,
-      batchNumber: userData.batchNumber,
       role: userData.role,
       qrCodeUuid: crypto.randomUUID(),
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      ...(userData.batchNumber ? { batchNumber: userData.batchNumber } : {})
     };
     
     await setDoc(doc(db, 'users', tempId), newUser);

@@ -1,5 +1,5 @@
 {
   "name": "QR Attendance Pro",
-  "description": "A professional QR-based attendance tracking system for students and administrators.",
+  "description": "A professional QR-based attendance tracking system with offline support and PWA capabilities.",
   "requestFramePermissions": ["camera"]
 }
